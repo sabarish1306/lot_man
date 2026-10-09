@@ -28,6 +28,14 @@ HEADER = re.compile(
     rf")(?P<body>.*)$"
 )
 
+# Some exports prepend this untimestamped notice before the chat begins.
+# Match the whole known notice, never an arbitrary prefix or unknown preamble.
+ENCRYPTION_NOTICE = (
+    "Messages and calls are end-to-end encrypted. No one outside of this "
+    "chat, not even WhatsApp, can read or listen to them."
+)
+OPENING_NOTICES = {ENCRYPTION_NOTICE, ENCRYPTION_NOTICE + " Tap to learn more."}
+
 
 @logged_operation(logger, "Chat parsing", logging.DEBUG)
 def parse_chat(text: str) -> list[dict]:
@@ -61,6 +69,9 @@ def parse_chat(text: str) -> list[dict]:
 
         elif current is not None:
             current["text"] += "\n" + line
+
+        elif " ".join(line.strip().lstrip("\ufeff").split()) in OPENING_NOTICES:
+            logger.debug("Skipped opening WhatsApp notice line=%d", line_number)
 
         elif line.strip():
             logger.warning("Unsupported chat header line=%d", line_number)

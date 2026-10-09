@@ -134,7 +134,8 @@ Supported chat-header examples:
 
 These illustrate the format; they are not saved application records. Plain
 ticket lists without WhatsApp headers are not currently supported as chat
-exports. Text before the first recognized header causes a format error.
+exports. The known opening WhatsApp encryption notice is skipped when it has
+no timestamp. Other text before the first recognized header causes a format error.
 The extraction prompt supports explicit number/count pairs separated by
 `-`, `*`, `.`, or `,`, subject to ambiguity checks. Model extraction still
 requires human validation.
