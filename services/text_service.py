@@ -6,7 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from logging_config import logged_operation
 
 logger = logging.getLogger("mani.text")
-client = Client(host="http://localhost:11434", timeout=300)
+# CPU extraction can be slow, especially after OCR or while a model loads.
+client = Client(host="http://localhost:11434", timeout=3600)
 
 
 class Ticket(BaseModel):

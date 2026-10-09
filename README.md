@@ -99,7 +99,11 @@ is needed for this local configuration.
 
 Frontend upload and Vite proxy timeouts are disabled because processing is
 synchronous and can take several minutes. Individual Ollama calls have a
-**300-second timeout** in `services/text_service.py`. The frontend never automatically retries a POST. Repeating a ZIP upload creates
+**3,600-second (1-hour) timeout** in `services/text_service.py`, giving slow local
+inference more time to finish. This applies per model call; imports containing
+multiple messages or images can take longer overall. Model failures or invalid
+outputs still appear as review issues. The frontend never automatically retries
+a POST. Repeating a ZIP upload creates
 another import. Final-ticket saves instead use idempotency keys, retained for
 explicit retries of the same submission after an uncertain response.
 
