@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 // No proxy timeout: synchronous CPU extraction can take several minutes.
 const proxy = {
   "/api": {
-    target: "http://127.0.0.1:8000",
+    target: process.env.MANI_API_TARGET || "http://127.0.0.1:8000",
     changeOrigin: true,
     rewrite: (path: string) => path.replace(/^\/api(?=\/|$)/, ""),
     timeout: 0,

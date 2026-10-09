@@ -105,7 +105,7 @@ export default function ImportResults({ result }: { result: ImportResult }) {
             label: "Draft ticket entries",
             value: count,
             icon: FileText,
-            note: "Unvalidated · not accepted",
+            note: "Original extraction count",
           },
           {
             label: "Needs review",
@@ -130,8 +130,8 @@ export default function ImportResults({ result }: { result: ImportResult }) {
       <div className="acceptance-note">
         <ShieldCheck size={18} />
         <p>
-          <strong>Accepted tickets: {result.accepted_ticket_count}.</strong>{" "}
-          Extracted entries are unvalidated drafts. Image-derived entries always
+          <strong>Accepted at import time: {result.accepted_ticket_count} (historical).</strong>{" "}
+          Live saved state appears below and in Stored tickets. Image-derived entries always
           require manual review.
         </p>
       </div>
@@ -177,7 +177,7 @@ export default function ImportResults({ result }: { result: ImportResult }) {
           hidden={tab !== "drafts"}
           tabIndex={0}
         >
-          <DraftEntries drafts={result.drafts} />
+          <DraftEntries result={result} />
         </div>
         <div
           id="review-panel"

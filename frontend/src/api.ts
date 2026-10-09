@@ -43,77 +43,67 @@ export interface ImportResult {
   accepted_ticket_count: number;
 }
 
-export interface TicketMatch {
-  import_id: string;
-  import_timestamp: string;
+export interface FinalTicket extends Ticket {
+  record_id: string;
   business_date: string;
-  import_status: string;
-  party: string | null;
-  record_type: "draft" | "review";
-  record_index: number;
-  ticket_index: number;
-  ticket: Ticket;
-  record: Draft | Issue;
+  import_timestamp: string;
+  saved_at: string;
+  party: string;
+  didWin: null;
+  source_image_url: string | null;
+  import_id: string | null;
+  message_id: string | null;
+  entry_source: "manual" | "confirmed_draft";
 }
 
+export interface ManualTicket extends Ticket { party: string }
+export interface SaveResult { records: FinalTicket[]; saved_count: number }
+export interface DailyTickets { business_date: string; records: FinalTicket[]; count: number }
 export interface TicketSearchResult {
   business_date: string;
   ticket_number: string;
   match_count: number;
-  matched_import_count: number;
-  searched_import_count: number;
-  matches: TicketMatch[];
-  warnings: { import_id: string; reason: string }[];
+  matches: FinalTicket[];
 }
 
-export async function searchTickets(
-  businessDate: string,
-  ticketNumber: string,
-): Promise<TicketSearchResult> {
-  const query = new URLSearchParams({
-    business_date: businessDate,
-    ticket_number: ticketNumber,
-  });
+function isFinalTicket(value: unknown): value is FinalTicket {
+  return isRecord(value) && typeof value.record_id === "string" &&
+    IMPORT_ID_PATTERN.test(value.record_id) && typeof value.business_date === "string" &&
+    typeof value.import_timestamp === "string" && typeof value.saved_at === "string" &&
+    typeof value.party === "string" && !!value.party.trim() &&
+    typeof value.ticket_number === "string" && /^[0-9]+$/.test(value.ticket_number) &&
+    Number.isSafeInteger(value.count) && Number(value.count) > 0 && value.didWin === null &&
+    (value.entry_source === "manual" || value.entry_source === "confirmed_draft") &&
+    (value.source_image_url === null || (typeof value.source_image_url === "string" && !!imageUrl(value.source_image_url))) &&
+    [value.import_id, value.message_id].every(id => id === null || (typeof id === "string" && IMPORT_ID_PATTERN.test(id)));
+}
+
+export async function getTickets(businessDate: string): Promise<DailyTickets> {
+  const data = await request(`/tickets?${new URLSearchParams({business_date: businessDate})}`);
+  if (!isRecord(data) || data.business_date !== businessDate || !Array.isArray(data.records) ||
+      !data.records.every(isFinalTicket) || data.count !== data.records.length) {
+    throw new ApiError("The backend returned an invalid stored-ticket response. Check storage and retry.");
+  }
+  return data as unknown as DailyTickets;
+}
+
+export async function saveTickets(path: "/tickets/bulk" | "/tickets/confirm-draft", payload: unknown, key: string): Promise<SaveResult> {
+  const data = await request(path, {method: "POST", headers: {"Content-Type": "application/json", "Idempotency-Key": key}, body: JSON.stringify(payload)});
+  if (!isRecord(data) || !Array.isArray(data.records) || !data.records.length ||
+      !data.records.every(isFinalTicket) || data.saved_count !== data.records.length) {
+    throw new ApiError("The save response could not be verified. Retry the unchanged submission with the same key.", true);
+  }
+  return data as unknown as SaveResult;
+}
+
+export async function searchTickets(businessDate: string, ticketNumber: string): Promise<TicketSearchResult> {
+  const query = new URLSearchParams({business_date: businessDate, ticket_number: ticketNumber});
   const data = await request(`/tickets/search?${query}`);
-  if (
-    !isRecord(data) ||
-    data.business_date !== businessDate ||
-    data.ticket_number !== ticketNumber ||
-    !["match_count", "matched_import_count", "searched_import_count"].every(
-      (key) => Number.isInteger(data[key]) && Number(data[key]) >= 0,
-    ) ||
-    !Array.isArray(data.matches) ||
-    !Array.isArray(data.warnings) ||
-    data.match_count !== data.matches.length ||
-    !data.warnings.every(
-      (warning) =>
-        isRecord(warning) &&
-        typeof warning.import_id === "string" &&
-        typeof warning.reason === "string",
-    ) ||
-    !data.matches.every(
-      (match) =>
-        isRecord(match) &&
-        typeof match.import_id === "string" &&
-        IMPORT_ID_PATTERN.test(match.import_id) &&
-        typeof match.import_timestamp === "string" &&
-        match.business_date === businessDate &&
-        typeof match.import_status === "string" &&
-        (match.record_type === "draft" || match.record_type === "review") &&
-        Number.isInteger(match.record_index) &&
-        Number(match.record_index) >= 0 &&
-        Number.isInteger(match.ticket_index) &&
-        Number(match.ticket_index) >= 0 &&
-        isRecord(match.record) &&
-        isRecord(match.ticket) &&
-        match.ticket.ticket_number === ticketNumber &&
-        Number.isInteger(match.ticket.count) &&
-        Number(match.ticket.count) > 0,
-    )
-  ) {
-    throw new ApiError(
-      "The backend returned an unexpected ticket search format. Try searching again after checking the backend.",
-    );
+  if (!isRecord(data) || data.business_date !== businessDate || data.ticket_number !== ticketNumber ||
+      !Array.isArray(data.matches) || !data.matches.every(isFinalTicket) ||
+      !data.matches.every(record => record.ticket_number === ticketNumber && record.business_date === businessDate) ||
+      data.match_count !== data.matches.length) {
+    throw new ApiError("The backend returned an invalid final-ticket search response.");
   }
   return data as unknown as TicketSearchResult;
 }
@@ -198,9 +188,10 @@ function parseResult(value: unknown): ImportResult {
 
 async function request(path: string, init?: RequestInit): Promise<unknown> {
   const uploading = init?.method === "POST";
+  const saving = uploading && path.startsWith("/tickets/");
   const retryAction = path.startsWith("/tickets/search")
     ? "searching again"
-    : "opening the import again";
+    : path.startsWith("/tickets") ? "loading stored tickets again" : "opening the import again";
   let response: Response;
   let body: string;
   try {
@@ -209,7 +200,9 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     body = await response.text();
   } catch {
     throw new ApiError(
-      uploading
+      saving
+        ? "The save outcome is uncertain. Retry the unchanged submission; its original idempotency key will be reused."
+        : uploading
         ? "The connection was interrupted. Server processing may still be running. Do not submit the ZIP again until you have checked the server. If you have its import ID, open it below."
         : `Could not reach the backend. Check that the local server is running and try ${retryAction}.`,
       uploading,
@@ -233,7 +226,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     throw new ApiError(
       `${detail || fallback} (HTTP ${response.status})${
         uncertain
-          ? "\nThe result is uncertain; server processing may still be running. Check the server before submitting again."
+          ? saving ? "\nRetry the unchanged submission with the same key." : "\nThe result is uncertain; server processing may still be running. Check the server before submitting again."
           : ""
       }`,
       uncertain,
@@ -243,7 +236,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     throw new ApiError(
       `The backend returned an unreadable response.${
         uploading
-          ? " The import may have been created. Check the server before submitting again."
+          ? saving ? " Tickets may have been saved. Retry the unchanged submission with the same key." : " The import may have been created. Check the server before submitting again."
           : ""
       }`,
       uploading,

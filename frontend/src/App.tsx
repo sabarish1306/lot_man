@@ -25,9 +25,11 @@ import { loadHistory, rememberImport } from "./history";
 import ImportUpload from "./components/ImportUpload";
 import ImportResults from "./components/ImportResults";
 import TicketLookup from "./components/TicketLookup";
+import StoredTickets from "./components/StoredTickets";
 
 export default function App() {
-  const [view, setView] = useState<"imports" | "lookup">("imports");
+  const [view, setView] = useState<"imports" | "lookup" | "stored">("imports");
+  const [storedVisited, setStoredVisited] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [history, setHistory] = useState(loadHistory);
   const [busy, setBusy] = useState<"upload" | "open" | null>(null);
@@ -139,6 +141,9 @@ export default function App() {
             <Search size={19} />
             Ticket lookup
           </button>
+          <button className={`nav-button ${view === "stored" ? "active" : ""}`} disabled={!!busy} onClick={() => { setStoredVisited(true); setView("stored"); setError(""); }}>
+            <HardDrive size={19} />Stored tickets
+          </button>
         </nav>
 
         <section className="opened-section" aria-labelledby="opened-title">
@@ -234,7 +239,7 @@ export default function App() {
           <div className="breadcrumbs">
             <span>Workspace</span>
             <ChevronRight size={13} />
-            <span>{view === "lookup" ? "Ticket lookup" : "Imports"}</span>
+            <span>{view === "stored" ? "Stored tickets" : view === "lookup" ? "Ticket lookup" : "Imports"}</span>
             {view === "imports" && result && (
               <>
                 <ChevronRight size={13} />
@@ -264,15 +269,15 @@ export default function App() {
             <div>
               <div className="eyebrow">IMPORT & REVIEW</div>
               <h1 ref={heading} tabIndex={-1}>
-                {view === "lookup"
+                {view === "stored" ? "Stored tickets" : view === "lookup"
                   ? "Daily ticket lookup"
                   : result
                     ? "Import results"
                     : "WhatsApp Ticket Import"}
               </h1>
               <p>
-                {view === "lookup"
-                  ? "Retrieve complete matching records across all saved imports for a day."
+                {view === "stored" ? "View final records and explicitly save verified ticket entries." : view === "lookup"
+                  ? "Search persisted final ticket records for a business day."
                   : result
                     ? "Inspect extracted entries and the source behind every result."
                     : "Bring your conversations into a clearer workspace."}
@@ -304,7 +309,8 @@ export default function App() {
               <p>Loading the stored import from your backend…</p>
             </div>
           )}
-          {view === "lookup" ? (
+          {storedVisited && <div hidden={view !== "stored"}><StoredTickets active={view === "stored"} /></div>}
+          {view === "stored" ? null : view === "lookup" ? (
             <TicketLookup
               opening={!!busy}
               onOpenImport={(importId) =>

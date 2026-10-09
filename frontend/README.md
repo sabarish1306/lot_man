@@ -5,8 +5,8 @@ WhatsApp import service. See the [application README](../README.md) for the
 complete architecture, storage, API contract, and troubleshooting guide.
 
 Daily ticket lookup uses `GET /api/tickets/search` to retrieve complete exact
-matches across all saved imports for a business date. It preserves duplicates,
-leading zeros, original record details, and draft/review status. It searches
+matches in persisted final records for a business date. It preserves duplicates,
+leading zeros and source identifiers, with winning status Pending. It searches
 backend files independently of browser history. The matching Python backend
 must be running with `services/search_service.py` and the `/tickets/search` route.
 
@@ -111,3 +111,13 @@ npm.cmd run preview
 Open **http://127.0.0.1:4173**. Both Vite dev and preview proxy the local backend.
 The compiled `dist/` is static: any separate production host must provide its
 own `/api` reverse proxy. Vite preview is for local build inspection.
+
+
+Final tickets: use Stored tickets for manual batch previews and persisted daily
+records; text drafts have an explicit Review and save action. Ticket lookup now
+searches only final records, with Pending winning status. Requests still use /api.
+Run `npm.cmd run test:e2e:tickets` for the isolated real-ticket-API browser suite
+(temporary data, ports 8011/5174, no live OCR). See the root README for schema,
+locking, retries and data backup details. The older `test:e2e` suite exercises
+real model imports separately and writes fixture imports; it is not the isolated
+final-ticket verification command.

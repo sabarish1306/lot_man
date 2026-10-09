@@ -112,7 +112,7 @@ test("real upload, indeterminate loading, duplicate prevention, empty results an
   const saved = (await response.json()) as ImportResult;
   expect(posts).toBe(1);
   await expect(
-    page.getByText("Accepted tickets: 0.", { exact: true }),
+    page.getByText("Accepted at import time: 0 (historical).", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "No draft entries in this import" }),
@@ -151,7 +151,7 @@ test("real drafts preserve zeros, duplicates, source timestamps, search, and key
   expect(expected).toEqual(["001234", "007890", "001234"]);
   await expect(page.locator(".ticket-link span")).toHaveText(expected);
   await expect(
-    page.getByText("Accepted tickets: 0.", { exact: true }),
+    page.getByText("Accepted at import time: 0 (historical).", { exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "View source for ticket 001234" })
@@ -469,131 +469,4 @@ test("upload and results pass automated accessibility checks", async ({
   expect(review.violations).toEqual([]);
 });
 
-test("daily lookup retrieves complete exact records without browser history", async ({
-  page,
-  request,
-}) => {
-  const query = new URLSearchParams({
-    business_date: textResult.business_date,
-    ticket_number: "001234",
-  });
-  const expectedResponse = await request.get(`/api/tickets/search?${query}`);
-  expect(expectedResponse.ok()).toBeTruthy();
-  const expected = await expectedResponse.json();
-  expect(expected.match_count).toBeGreaterThanOrEqual(2);
-  await page.goto("/");
-  await expect(
-    page.getByText("No imports opened yet.", { exact: false }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Find a ticket", exact: true })
-    .click();
-  await page
-    .getByLabel("Business date", { exact: true })
-    .fill(textResult.business_date);
-  await page.getByLabel("Ticket number", { exact: true }).fill("001234");
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route("**/api/tickets/search?**", async (route) => {
-    await gate;
-    await route.continue();
-  });
-  await page.getByRole("button", { name: "Find records", exact: true }).click();
-  await expect(
-    page.getByText("Searching saved imports for the selected day…"),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Searching…", exact: true }),
-  ).toBeDisabled();
-  release();
-  await expect(page.locator(".lookup-record")).toHaveCount(
-    Math.min(20, expected.match_count),
-  );
-  await expect(page.locator(".lookup-record mark")).toHaveText(
-    Array(Math.min(20, expected.match_count)).fill("001234"),
-  );
-  const first = page.locator(".lookup-record").first();
-  await expect(first).toContainText(expected.matches[0].record.sender);
-  await expect(first).toContainText(
-    expected.matches[0].record.message_timestamp_raw,
-  );
-  await first.locator("summary").click();
-  expect(JSON.parse(await first.locator(".json-output").innerText())).toEqual(
-    expected.matches[0].record,
-  );
-  await expect(first.locator(".source-text")).toHaveText(
-    expected.matches[0].record.text,
-  );
-  await page.screenshot({
-    path: "test-results/daily-lookup-desktop.png",
-    fullPage: true,
-  });
-  const accessibility = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-    .analyze();
-  expect(accessibility.violations).toEqual([]);
-  await first.getByRole("button", { name: "Open full import" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Import results", exact: true }),
-  ).toBeVisible();
-});
-
-test("daily lookup clears stale results, preserves zeros and handles no matches and network errors", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page
-    .getByRole("button", { name: "Find a ticket", exact: true })
-    .click();
-  await page
-    .getByLabel("Business date", { exact: true })
-    .fill(textResult.business_date);
-  await page.getByLabel("Ticket number", { exact: true }).fill("001234");
-  await page.getByRole("button", { name: "Find records" }).click();
-  await expect(page.locator(".lookup-record").first()).toBeVisible();
-  await page.getByLabel("Business date", { exact: true }).fill("1900-01-01");
-  await expect(page.locator(".lookup-record")).toHaveCount(0);
-  await page.getByRole("button", { name: "Find records" }).click();
-  await expect(
-    page.getByRole("heading", { name: "No matching records" }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Ticket number", { exact: true })).toHaveValue(
-    "001234",
-  );
-  await page.route("**/api/tickets/search?**", (route) =>
-    route.abort("failed"),
-  );
-  await page.getByRole("button", { name: "Find records" }).click();
-  await expect(page.getByRole("alert")).toContainText("try searching again");
-  await expect(page.locator(".lookup-record")).toHaveCount(0);
-  await page.getByRole("button", { name: "Clear", exact: true }).click();
-  await expect(page.getByLabel("Ticket number", { exact: true })).toHaveValue(
-    "",
-  );
-  await expect(page.getByLabel("Ticket number", { exact: true })).toBeFocused();
-});
-
-test("daily lookup is usable on mobile", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  await page
-    .getByRole("button", { name: "Find a ticket", exact: true })
-    .click();
-  await page
-    .getByLabel("Business date", { exact: true })
-    .fill(textResult.business_date);
-  await page.getByLabel("Ticket number", { exact: true }).fill("001234");
-  await page.getByRole("button", { name: "Find records" }).click();
-  await expect(page.locator(".lookup-record").first()).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBeTruthy();
-  await page.screenshot({
-    path: "test-results/daily-lookup-mobile.png",
-    fullPage: true,
-  });
-});
+// Final-record lookup checks now live in tickets.spec.ts with isolated storage.

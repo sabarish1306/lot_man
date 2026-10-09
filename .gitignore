@@ -9,5 +9,5 @@ paddle-env/
 !.env.example
 .cache/
 output/
-data/imports/
+data/
 *.safetensors

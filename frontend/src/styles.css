@@ -1940,3 +1940,24 @@ table {
     gap: 8px;
   }
 }
+
+.ticket-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
+.ticket-workspace > section { min-width: 0; }
+.ticket-editor, .draft-confirmation { padding: 24px; }
+.ticket-editor > p, .draft-confirmation p { margin: 10px 0; color: #4c6373; line-height: 1.6; }
+.ticket-editor h2, .draft-confirmation h3 { font-weight: 650; }
+.ticket-editor input, .draft-confirmation input:not([type="checkbox"]) { border: 1px solid #a6b7c2; border-radius: 6px; padding: 9px 12px; background: white; min-width: 120px; width: 100%; }
+.ticket-editor input:disabled { background: #f0f4f6; color: #334e60; }
+.ticket-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.save-preview { padding: 20px; margin-top: 16px; border: 1px solid #c9ddd5; border-radius: 8px; background: #f5fbf8; }
+.save-preview ol, .draft-confirmation ol { list-style: decimal; padding-left: 24px; margin: 12px 0; overflow-wrap: anywhere; }
+.draft-confirmation label { display: block; margin: 14px 0; }
+.draft-confirmation .verification-checkbox { display: flex; align-items: flex-start; gap: 10px; }
+.verification-checkbox input { margin-top: 4px; }
+.ticket-count, .confirmation-state { padding: 12px 24px; }
+.draft-table details { max-width: 290px; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 720px) { .ticket-editor, .draft-confirmation { padding: 16px; } }
+@media (max-width: 720px) {
+  .sidebar nav { display: flex; flex-wrap: wrap; grid-column: 1 / -1; gap: 6px; }
+  .sidebar nav .nav-button { width: auto; flex: 1 1 auto; font-size: 12px; }
+}

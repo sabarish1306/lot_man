@@ -1,0 +1,98 @@
+import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+
+test("manual batch validates, previews, survives uncertain response and persists duplicates", async ({page, request}) => {
+  await page.goto("/");
+  await page.getByRole("button", {name: "Stored tickets", exact: true}).click();
+  const expectedDay = new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
+  await expect(page.getByLabel("Business date", {exact: true})).toHaveValue(expectedDay);
+  await expect(page.getByText("No final tickets saved for this date.")).toBeVisible();
+  await page.getByRole("button", {name: "Preview batch"}).click();
+  await expect(page.getByRole("alert")).toContainText("Row 1");
+  await page.getByLabel("Party row 1").fill("Manual UI");
+  await page.getByLabel("Ticket Number row 1").fill("000123");
+  await page.getByLabel("Count row 1").fill("2.5");
+  await page.getByRole("button", {name: "Preview batch"}).click();
+  await expect(page.getByRole("alert")).toContainText("whole-number");
+  await page.getByLabel("Count row 1").fill("2");
+  await page.getByRole("button", {name: "Add row"}).click();
+  await page.getByLabel("Party row 2").fill("Manual UI");
+  await page.getByLabel("Ticket Number row 2").fill("000123");
+  await page.getByLabel("Count row 2").fill("2");
+  await page.getByRole("button", {name: "Preview batch"}).click();
+  await expect(page.getByRole("heading", {name: "Confirm 2 entries"})).toBeVisible();
+  const keys: string[] = [];
+  await page.route("**/api/tickets/bulk", async route => {
+    keys.push(route.request().headers()["idempotency-key"]);
+    const response = await route.fetch(); // Commit via real API, then lose the first response.
+    if (keys.length === 1) await route.abort("failed"); else await route.fulfill({response});
+  });
+  await page.getByRole("button", {name: "Confirm and save batch"}).click();
+  await expect(page.getByRole("alert")).toContainText("uncertain");
+  await expect(page.getByLabel("Party row 1")).toBeDisabled();
+  await page.getByRole("button", {name: "Ticket lookup", exact: true}).click();
+  await page.getByRole("button", {name: "Stored tickets", exact: true}).click();
+  await page.getByRole("button", {name: "Retry same submission"}).click();
+  await expect(page.getByText(/Saved 2 final ticket records/)).toBeVisible();
+  expect(keys).toHaveLength(2); expect(keys[0]).toBe(keys[1]);
+  await expect(page.getByLabel("Party row 1")).toHaveValue("");
+  const records = (await (await request.get(`/api/tickets?business_date=${expectedDay}`)).json()).records;
+  expect(records.filter((record: {party: string}) => record.party === "Manual UI")).toHaveLength(2);
+  await page.reload();
+  await page.getByRole("button", {name: "Stored tickets", exact: true}).click();
+  await page.getByLabel("Filter by Party").fill("Manual UI");
+  await page.getByLabel("Filter by Ticket Number").fill("000123");
+  await expect(page.getByRole("cell", {name: "000123", exact: true})).toHaveCount(2);
+  await page.getByLabel("Filter by Party").fill("No such party");
+  await expect(page.getByText("No records match these filters.")).toBeVisible();
+  await page.getByLabel("Filter by Party").fill("");
+  const accessibility = await new AxeBuilder({page}).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(accessibility.violations).toEqual([]);
+  await page.setViewportSize({width:390, height:844});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.screenshot({path: "test-results/stored-tickets-mobile.png", fullPage: true});
+});
+
+test("whole text draft confirmation is explicit and original evidence survives", async ({page, request}) => {
+  const id = "a".repeat(32);
+  const before = await (await request.get(`/api/imports/${id}`)).json();
+  await page.goto("/");
+  await page.getByLabel("Have an import ID?").fill(id);
+  await page.getByRole("button", {name: "Open import", exact: true}).click();
+  await page.getByRole("button", {name: "Review and save", exact: true}).first().click();
+  await page.locator(".draft-confirmation").getByRole("button", {name: "Review and save", exact: true}).click();
+  await expect(page.locator(".draft-confirmation")).toContainText("2026-10-08");
+  await expect(page.locator(".draft-confirmation li")).toHaveCount(2);
+  await page.locator(".draft-confirmation").getByLabel("Party", {exact: true}).fill("Confirmed UI");
+  await expect(page.getByRole("button", {name: "Confirm and save text draft"})).toBeDisabled();
+  await page.getByLabel("I verified all ticket numbers and counts against the original message.").check();
+  await page.getByRole("button", {name: "Confirm and save text draft"}).click();
+  await expect(page.getByText(/Saved \/ already confirmed/)).toBeVisible();
+  const after = await (await request.get(`/api/imports/${id}`)).json();
+  expect(after).toEqual(before);
+  const duplicate = await request.post("/api/tickets/confirm-draft", {headers: {"Idempotency-Key": "another-confirmation"}, data: {import_id:id, message_id:"b".repeat(32), party:"Confirmed UI", tickets:before.drafts[0].tickets}});
+  expect(duplicate.status()).toBe(409);
+  await page.getByRole("button", {name: "Ticket lookup", exact: true}).click();
+  await page.getByLabel("Business date", {exact:true}).fill("2026-10-08");
+  await page.getByLabel("Ticket number", {exact:true}).fill("001234");
+  await page.getByRole("button", {name:"Find records"}).click();
+  await expect(page.getByRole("heading", {name:"2 matching final records"})).toBeVisible();
+  await expect(page.getByRole("cell", {name:"Pending", exact:true})).toHaveCount(2);
+  await expect(page.getByRole("cell", {name:"Confirmed UI", exact:true})).toHaveCount(2);
+  await page.getByLabel("Ticket number", {exact:true}).fill("1234");
+  await page.getByRole("button", {name:"Find records"}).click();
+  await expect(page.getByRole("heading", {name:"No matching records"})).toBeVisible();
+});
+
+test("stored tickets expose storage, network and date errors without stale rows", async ({page}) => {
+  await page.goto("/");
+  await page.route("**/api/tickets?**", route => route.fulfill({status:503, contentType:"application/json", body:JSON.stringify({detail:"Ticket storage is corrupt. Restore from backup."})}));
+  await page.getByRole("button", {name:"Stored tickets", exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("storage is corrupt");
+  await page.unroute("**/api/tickets?**");
+  await page.route("**/api/tickets?**", route => route.abort("failed"));
+  await page.getByRole("button", {name:"Refresh records"}).click();
+  await expect(page.getByRole("alert")).toContainText("Could not reach the backend");
+  await page.getByLabel("Business date", {exact:true}).fill("");
+  await expect(page.getByRole("alert")).toContainText("Choose a valid business date");
+});

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import zipfile
 from contextlib import asynccontextmanager
@@ -9,11 +10,12 @@ from time import perf_counter
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
 from services.import_service import process_import
 from services.search_service import search_tickets
+from services.ticket_store import BulkRequest, ConfirmRequest, ConflictError, StoreError, TicketStore
 from logging_config import configure_logging, request_id
 
 configure_logging()
@@ -31,8 +33,11 @@ async def lifespan(app):
 
 app = FastAPI(title="WhatsApp Ticket Import", lifespan=lifespan)
 
-IMPORTS_DIR = Path(__file__).resolve().parent / "data" / "imports"
+DATA_DIR = Path(os.environ.get("MANI_DATA_DIR", Path(__file__).resolve().parent / "data"))
+IMPORTS_DIR = DATA_DIR / "imports"
 IMPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+TICKETS_DIR = DATA_DIR / "tickets"
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
@@ -170,10 +175,9 @@ def search_saved_tickets(
     except ValueError:
         raise HTTPException(422, "Enter a valid business date in YYYY-MM-DD format.")
     try:
-        return search_tickets(IMPORTS_DIR, business_date, ticket_number)
-    except OSError:
-        logger.exception("Ticket lookup could not access saved imports")
-        raise HTTPException(503, "Saved imports are unavailable. Check the backend storage and try again.")
+        return search_tickets(TICKETS_DIR, business_date, ticket_number)
+    except ValueError:
+        raise HTTPException(422, "Enter a valid business date and ASCII ticket number.")
 
 
 @app.get("/imports/{import_id}/issues")
@@ -205,3 +209,42 @@ def get_source_image(import_id: str, filename: str):
 
     logger.debug("Serving image import_id=%s image_id=%s", import_id, filename)
     return FileResponse(path)
+
+
+@app.exception_handler(StoreError)
+async def storage_error(request: Request, exc: StoreError):
+    logger.error("Final ticket storage unavailable")
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(ConflictError)
+async def ticket_conflict(request: Request, exc: ConflictError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.get("/tickets")
+def list_final_tickets(business_date: str | None = Query(None)):
+    try:
+        return TicketStore(TICKETS_DIR).list(business_date)
+    except ValueError:
+        raise HTTPException(422, "Enter a valid business date in YYYY-MM-DD format.")
+
+
+@app.post("/tickets/bulk")
+def save_manual_tickets(payload: BulkRequest, idempotency_key: str = Header(...)):
+    try:
+        return TicketStore(TICKETS_DIR).save(idempotency_key, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.post("/tickets/confirm-draft")
+def confirm_text_draft(payload: ConfirmRequest, idempotency_key: str = Header(...)):
+    try:
+        original = load_result(payload.import_id)
+    except (OSError, ValueError, UnicodeError):
+        raise StoreError("The original import result is unreadable. Restore it before confirming.") from None
+    try:
+        return TicketStore(TICKETS_DIR).save(idempotency_key, payload.model_dump(), original=original)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(422, "The source must be a valid existing text draft with unchanged entries and valid import metadata.")

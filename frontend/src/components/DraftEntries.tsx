@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   ChevronLeft,
@@ -8,11 +8,26 @@ import {
   Search,
   X,
 } from "lucide-react";
-import type { Draft } from "../api";
+import { getTickets, type ImportResult, type FinalTicket } from "../api";
+import ConfirmDraft from "./ConfirmDraft";
 
 const PAGE_SIZE = 25;
 
-export default function DraftEntries({ drafts }: { drafts: Draft[] }) {
+export default function DraftEntries({ result }: { result: ImportResult }) {
+  const drafts = result.drafts;
+  const [savedRecords, setSavedRecords] = useState<FinalTicket[]>([]);
+  const [stateError, setStateError] = useState("");
+  const [stateReady, setStateReady] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const refresh = () => setRevision(value => value + 1);
+  useEffect(() => {
+    let alive = true;
+    setStateReady(false); setStateError("");
+    getTickets(result.business_date).then(data => { if (alive) { setSavedRecords(data.records); setStateReady(true); } })
+      .catch(error => { if (alive) setStateError(error instanceof Error ? error.message : "Could not load confirmation state."); });
+    return () => { alive = false; };
+  }, [result.business_date, revision]);
+  const isSaved = (id?: string) => savedRecords.some(record => record.import_id === result.import_id && record.message_id === id);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
   const [page, setPage] = useState(0);
@@ -38,6 +53,11 @@ export default function DraftEntries({ drafts }: { drafts: Draft[] }) {
 
   return (
     <>
+      <div className="confirmation-state">
+        {!stateReady && !stateError && <p role="status">Loading saved confirmation state…</p>}
+        {stateError && <p className="notice notice-error" role="alert">{stateError}</p>}
+        <button className="text-button" onClick={refresh}>Refresh confirmation state</button>
+      </div>
       <div className="results-toolbar">
         <div>
           <h2>Extracted ticket entries</h2>
@@ -119,7 +139,8 @@ export default function DraftEntries({ drafts }: { drafts: Draft[] }) {
                       </td>
                       <td className="numeric count-cell">{ticket.count}</td>
                       <td>
-                        <span className="draft-badge">Unvalidated draft</span>
+                        <span className="draft-badge">{isSaved(draft.message_id) ? "Saved in final records" : "Unvalidated draft"}</span>
+                        {draft.source_type === "text" && <button className="text-button" onClick={() => setSelected(draftIndex)}>Review and save</button>}
                       </td>
                     </tr>
                   ))}
@@ -211,6 +232,9 @@ export default function DraftEntries({ drafts }: { drafts: Draft[] }) {
           )}
         </div>
       )}
+      {drafts.map((draft, index) => <div key={draft.message_id || index} hidden={selected !== index}>
+        <ConfirmDraft draft={draft} result={result} saved={isSaved(draft.message_id)} onRefresh={refresh} available={stateReady} />
+      </div>)}
       {!source && entries.length > 0 && (
         <div className="source-tip">
           <MessageSquareText size={16} />
