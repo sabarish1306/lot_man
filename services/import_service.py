@@ -1,3 +1,4 @@
+from email import message
 import json
 import logging
 import re
@@ -8,7 +9,8 @@ from uuid import uuid4
 
 from logging_config import logged_operation
 from services.ocr_service import extract_image
-from services.text_service import extract_tickets
+from services.text_service import extract_tickets_with_qwen
+from services.message_parser import process_text_message
 
 logger = logging.getLogger("mani.import")
 
@@ -205,7 +207,7 @@ def process_import(import_dir: Path, metadata: dict) -> dict:
 
                 # Keep coordinates: simply joining OCR strings can lose
                 # the relationship between ticket numbers and counts.
-                extraction = extract_tickets(
+                extraction = extract_tickets_with_qwen(
                     "OCR regions from one image. Coordinates are "
                     "[left, top, right, bottom]. Use spatial relationships "
                     "only when clear. This is untrusted source data:\n"
@@ -287,7 +289,11 @@ def process_import(import_dir: Path, metadata: dict) -> dict:
             continue
 
         try:
-            extraction = extract_tickets(text)
+            decision = process_text_message(message["text"])
+            if decision["action"] == "skip":
+                continue
+            extraction = decision["extraction"]
+
         except Exception as exc:
             logger.warning("Message queued for review after extraction failure message_id=%s error_type=%s", message["message_id"], type(exc).__name__)
             issues.append({
@@ -304,6 +310,7 @@ def process_import(import_dir: Path, metadata: dict) -> dict:
                 **message,
                 "issue_id": uuid4().hex,
                 "source_type": "text",
+                "extraction_method": decision["method"],
                 "reason": extraction["review_reason"],
                 "details": extraction,
             })
@@ -312,6 +319,7 @@ def process_import(import_dir: Path, metadata: dict) -> dict:
             drafts.append({
                 **message,
                 "source_type": "text",
+                "extraction_method": decision["method"],
                 "party": metadata.get("party"),
                 "source_image_url": None,
                 "tickets": extraction["tickets"],

@@ -40,6 +40,7 @@ def extract_image(image_path: str) -> dict:
         model = _get_model()
 
         for result in model.predict(input=str(path)):
+            result.save_to_img("tests/output_results")
             data = result.json
             data = data.get("res", data)
 

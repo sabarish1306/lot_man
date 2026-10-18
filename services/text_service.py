@@ -26,7 +26,7 @@ class TicketExtraction(BaseModel):
 
 
 @logged_operation(logger, "Ticket extraction")
-def extract_tickets(text: str) -> dict:
+def extract_tickets_with_qwen(text: str) -> dict:
     if not text.strip():
         logger.warning("Ticket extraction rejected: empty message")
         raise ValueError("Message is empty.")

@@ -6,7 +6,7 @@ import json
 def main():
     # Import model dependencies only when explicitly running this script.
     from logging_config import configure_logging
-    from services.text_service import extract_tickets
+    from services.text_service import extract_tickets_with_qwen
 
     configure_logging()
     message = """
@@ -15,7 +15,7 @@ def main():
 004321.3
 009876,4
 """
-    result = extract_tickets(message)
+    result = extract_tickets_with_qwen(message)
     print(json.dumps(result, indent=2))
 
 

@@ -11,3 +11,4 @@ paddle-env/
 output/
 data/
 *.safetensors
+tests/
